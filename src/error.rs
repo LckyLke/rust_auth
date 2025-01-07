@@ -17,6 +17,17 @@ pub enum Error{
 	InvalidAuthHeaderError,
 	#[error("no permission")]
 	NoPermissionError,
+	#[error("key not found")]
+	KeyNotFoundError,
+	#[error("Insertion in DB failed")]
+	DatabaseInsertError,
+	#[error("User aready exists")]
+	UserAlreadyExistsError,
+	#[error("Could not hash password")]
+	HashingError,
+	#[error("Could not find user")]
+	UserNotFoundError,
+
 }
 
 #[derive(Serialize,Debug)]
@@ -38,6 +49,11 @@ pub async  fn handle_rejection(err: Rejection) -> std::result::Result<impl Reply
 			Error::JWTTokenCreationError => (
 				StatusCode::INTERNAL_SERVER_ERROR, String::from("Internal Server Error!")
 			),
+			Error::KeyNotFoundError => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+			Error::UserAlreadyExistsError => (StatusCode::BAD_REQUEST, e.to_string()),
+			Error::HashingError => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+			Error::DatabaseInsertError => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+			Error::UserNotFoundError => (StatusCode::NOT_FOUND, e.to_string()),
 			_ => (StatusCode::BAD_REQUEST, e.to_string()),
 		}
 	} else if err.find::<warp::reject::MethodNotAllowed>().is_some(){

@@ -1,1 +1,38 @@
-/target
+# Ignore .env files in all directories
+.env
+.env.* 
+secret.txt
+
+# Next.js
+.next/
+out/
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.tsbuildinfo
+
+# Rust
+/target/
+**/*.rs.bk
+
+# General
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log
+*.swp
+*.swo
+*.swn
+*.swm
+*.sml
+*.swp
+*.lock
+*.tmp
+*.bak
+
+# Coverage
+coverage/
+*.lcov

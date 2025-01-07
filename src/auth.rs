@@ -2,6 +2,7 @@ use crate::{error::Error, Result, WebResult};
 use chrono::prelude::*;
 use serde::{Deserialize, Serialize};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
+use std::fs;
 
 use std::fmt;
 use warp::{
@@ -11,8 +12,11 @@ use warp::{
 };
 
 const BEARER: &str = "Bearer ";
-const JWT_SECRET: &[u8] = b"secret";
+const PRIVATE_SECRET_PATH: &str = "secret.txt";
 
+fn read_secret() -> Result<String> {
+	fs::read_to_string(PRIVATE_SECRET_PATH).map_err(|_| Error::KeyNotFoundError)
+}
 
 #[derive(Clone, PartialEq)]
 pub enum Role{
@@ -53,15 +57,17 @@ pub fn with_auth(role: Role) -> impl Filter<Extract = (String,), Error = Rejecti
 }
 
 pub fn create_jwt(uid: &str, role: &Role) -> Result<String>{
-	let expiration = Utc::now().checked_add_signed(chrono::Duration::seconds(60)).expect("valid timestamp").timestamp();
+	let private_key = EncodingKey::from_secret(&read_secret()?.as_ref());
+	let expiration = Utc::now().checked_add_signed(chrono::Duration::seconds(60*60)).expect("valid timestamp").timestamp();
 	let claims = Claims{
 		sub: uid.to_owned(),
 		role: role.to_string(),
 		exp: expiration as usize,
 	};
+
 	
 	let header: Header = Header::new(Algorithm::HS512);
-	encode(&header, &claims, &EncodingKey::from_secret(JWT_SECRET))
+	encode(&header, &claims, &private_key)
 	.map_err(|_| Error::JWTTokenCreationError)
 }
 
@@ -70,7 +76,7 @@ async fn authorize((role, headers): (Role, HeaderMap<HeaderValue>)) -> WebResult
 		Ok(jwt) => {
 			let decoded = decode::<Claims>(
 				&jwt,
-				&DecodingKey::from_secret(JWT_SECRET),
+				&DecodingKey::from_base64_secret(&read_secret()?).unwrap(),
 				&Validation::new(Algorithm::HS512),
 			)
 			.map_err(|_| reject::custom(Error::JWTTokenError))?;
