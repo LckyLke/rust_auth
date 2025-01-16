@@ -224,11 +224,13 @@ pub async fn login_handler(
 
     Ok(reply::json(&LoginResponse { token, refresh_token }))
 }
+
+
 pub async fn refresh_handler(
     collection: Collection<User>,
     body: RefreshRequest,
 ) -> WebResult<impl Reply> {
-    // 1) Find the user by their stored refresh token
+    // 1) Find the user in the database by the existing refresh_token
     let mut user = match collection
         .find_one(doc! {"refresh_token": &body.refresh_token})
         .await
@@ -237,40 +239,35 @@ pub async fn refresh_handler(
         _ => return Err(reject::custom(UserNotFoundError)),
     };
 
-    // 2) Decode the refresh token as a JWT to ensure it’s valid & not expired
-    let decoded = decode::<auth::Claims>(
-        &body.refresh_token,
-        &DecodingKey::from_secret(auth::read_secret()?.as_ref()),
-        &Validation::new(Algorithm::HS512),
-    ).map_err(|_| reject::custom(Error::JWTTokenError))?;
+    // 2) Decode (and validate) the refresh token via auth.rs
+    let claims = match auth::decode_refresh_token(&body.refresh_token) {
+        Ok(claims) => claims,
+        Err(_) => return Err(reject::custom(JWTTokenError)),
+    };
 
-    // Optionally, check if `decoded.claims.role == "Refresh"`
-    // or some other marker to ensure it’s truly a refresh token.
-
-    // 3) If it’s still valid, create a NEW access token
-    let new_access = auth::create_jwt(&user.uid, &Role::from_str(&user.role))
-        .map_err(|_| reject::custom(Error::JWTTokenCreationError))?;
+    // 3) Use `claims.sub` and the user’s role to create a NEW access token
+    let new_access_token = auth::create_jwt(&claims.sub, &Role::from_str(&user.role))
+        .map_err(|_| reject::custom(JWTTokenCreationError))?;
 
     // 4) [ROTATION STEP] Generate a NEW refresh token
-    //    so that old refresh tokens can’t be reused over and over
-    let new_refresh = auth::create_refresh_jwt(&user.uid)
-        .map_err(|_| reject::custom(Error::JWTTokenCreationError))?;
+    let new_refresh_token = auth::create_refresh_jwt(&claims.sub)
+        .map_err(|_| reject::custom(JWTTokenCreationError))?;
 
-    // 5) Update the user’s stored refresh token to the new one
+    // 5) Update the user’s stored refresh token
     collection
         .update_one(
-            doc! { "_id": &user.id },
-            doc! { "$set": { "refresh_token": &new_refresh } },
+            doc! {"_id": &user.id},
+            doc! {"$set": {"refresh_token": &new_refresh_token}},
         )
         .await
         .map_err(|_| reject::custom(DatabaseInsertError))?;
 
-    user.refresh_token = Some(new_refresh.clone());
+    user.refresh_token = Some(new_refresh_token.clone());
 
     // 6) Return the new tokens
-    Ok(reply::json(&RefreshResponse {
-        access_token: new_access,
-        refresh_token: Some(new_refresh),
+    Ok(warp::reply::json(&RefreshResponse {
+        access_token: new_access_token,
+        refresh_token: Some(new_refresh_token),
     }))
 }
 
