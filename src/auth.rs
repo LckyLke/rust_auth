@@ -71,6 +71,26 @@ pub fn create_jwt(uid: &str, role: &Role) -> Result<String>{
 	.map_err(|_| Error::JWTTokenCreationError)
 }
 
+pub fn create_refresh_jwt(uid: &str) -> Result<String> {
+	let private_key = EncodingKey::from_secret(&read_secret()?.as_ref());
+
+	let expiration = Utc::now()
+		.checked_add_signed(chrono::Duration::days(14))
+		.expect("valid timestamp required")
+		.timestamp();
+
+	let claims = Claims {
+		sub: uid.to_owned(),
+		role: "Refresh".to_owned(),
+		exp: expiration as usize,
+	};
+
+	let header = Header::new(Algorithm::HS512);
+	
+	encode(&header, &claims, &private_key)
+		.map_err(|_| Error::JWTTokenCreationError)
+}
+
 async fn authorize((role, headers): (Role, HeaderMap<HeaderValue>)) -> WebResult<String> {
 	match jwt_from_header(&headers) {
 		Ok(jwt) => {
