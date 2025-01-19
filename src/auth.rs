@@ -44,10 +44,10 @@ impl fmt::Display for Role{
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-struct Claims{
-	sub: String,
-	role: String,
-	exp: usize,
+pub struct Claims{
+	pub sub: String,
+	pub role: String,
+	pub exp: usize,
 }
 
 pub fn with_auth(role: Role) -> impl Filter<Extract = (String,), Error = Rejection> + Clone {
@@ -70,6 +70,42 @@ pub fn create_jwt(uid: &str, role: &Role) -> Result<String>{
 	encode(&header, &claims, &private_key)
 	.map_err(|_| Error::JWTTokenCreationError)
 }
+
+pub fn create_refresh_jwt(uid: &str) -> Result<String> {
+	let private_key = EncodingKey::from_secret(&read_secret()?.as_ref());
+
+	let expiration = Utc::now()
+		.checked_add_signed(chrono::Duration::days(14))
+		.expect("valid timestamp required")
+		.timestamp();
+
+	let claims = Claims {
+		sub: uid.to_owned(),
+		role: "Refresh".to_owned(),
+		exp: expiration as usize,
+	};
+
+	let header = Header::new(Algorithm::HS512);
+	
+	encode(&header, &claims, &private_key)
+		.map_err(|_| Error::JWTTokenCreationError)
+}
+
+pub fn decode_refresh_token(token: &str) -> Result<Claims> {
+    let decoding_key = DecodingKey::from_secret(read_secret()?.as_ref());
+    let validation = Validation::new(Algorithm::HS512);
+
+    let decoded = decode::<Claims>(token, &decoding_key, &validation)
+        .map_err(|_| Error::JWTTokenError)?;
+
+    // Optionally ensure that `decoded.claims.role` is "Refresh"
+    if decoded.claims.role != "Refresh" {
+        return Err(Error::JWTTokenError); // or a more specific error if you like
+    }
+
+    Ok(decoded.claims)
+}
+
 
 async fn authorize((role, headers): (Role, HeaderMap<HeaderValue>)) -> WebResult<String> {
 	match jwt_from_header(&headers) {
