@@ -2,42 +2,45 @@ import { NextResponse } from 'next/server';
 
 export async function POST(request) {
   try {
-    // 1. Parse JSON body from the request
     const { email, password } = await request.json();
-
-    // 2. Send credentials to Rust server
+    // 1. Send credentials to your Rust server
     const response = await fetch('http://localhost:8000/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
     });
 
-    // 3. If invalid credentials or server error
+    // 2. If invalid credentials or server error
     if (!response.ok) {
-      if (response.status === 404) {
-        return NextResponse.json({ message: 'User not found' }, { status: response.status });
-      }
-      return NextResponse.json({ message: 'Invalid credentials' }, { status: response.status });
+      // e.g. 404 => user not found, 401 => wrong credentials, etc.
+      const errorData = await response.json().catch(() => ({}));
+      return NextResponse.json(errorData, { status: response.status });
     }
 
-    // 4. Extract token from Rust server’s response
-    const data = await response.json();
-    console.log(data);
-    const { token } = data;
+    // 3. Extract tokens from Rust server’s response
+    const { token, refresh_token } = await response.json();
 
-    // 5. Create a NextResponse and set the HTTP-only cookie
+    // 4. Create a NextResponse, store both tokens as HTTP-only cookies
     const nextResponse = NextResponse.json({ message: 'Login successful' });
     nextResponse.cookies.set('token', token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production', // Use HTTPS in production
+      secure: process.env.NODE_ENV === 'production',
       maxAge: 60 * 60, // 1 hour
+      sameSite: 'strict',
+      path: '/',
+    });
+
+    nextResponse.cookies.set('refresh_token', refresh_token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 60 * 60 * 24 * 14, // e.g. 14 days
       sameSite: 'strict',
       path: '/',
     });
 
     return nextResponse;
   } catch (error) {
-    console.error(error);
+    console.error('Login error:', error);
     return NextResponse.json({ message: 'Internal server error' }, { status: 500 });
   }
 }
